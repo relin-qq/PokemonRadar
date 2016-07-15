@@ -5,28 +5,36 @@ var Extend = require("extend");
 //Geo
 var geo = {
     Req : require("node-geocoder"),
+
     DefaultOptions : { 
-        init: { provider: "google", httpAdapter: "https" },
+        init: { 
+            provider: "google", 
+            httpAdapter: "https",
+            formatter : null
+        },
         location: "Broadway New York"
+    },
+
+    Coder : function(argOpt) {
+        var self = this;
+        self.options = {};
+
+        Extend(self.options, geo.DefaultOptions, argOpt);
+
+        self._coder = geo.Req(self.options.init);
     }
 };
 
-geo.Coder = function(argOpt) {
-    var self = this;
-    self.options = {};
-
-    Extend(self.options, geo.DefaultOptions, argOpt);
-    self._coder = geo.Req(self.options.init);
-};
-
 geo.Coder.prototype = {
+    _coder: {},
     getLocation: function(callback){
         console.log(this._coder)
-        this._coder.getcode(this.options.location, function(err, res){
-            if(error)
-                return console.error("Geo Error: %s", error);
 
-            callback(err, res);
+        this._coder.geocode(this.options.location, function(err, res){
+            if(err)
+                return console.error("Geo Error: %s", err);
+
+            callback(res);
         });
     }
 };
@@ -83,7 +91,9 @@ var init = function(options){
         location: options.location
     });
 
-    console.log(geoCoder.getLocation());
+    console.log(geoCoder.getLocation(function(res){
+        console.log(res)
+    }));
 };
 
 
