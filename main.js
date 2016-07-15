@@ -1,6 +1,7 @@
 var Fs = require("fs");
 var Program = require("commander");
 var Extend = require("extend");
+var Url = require("url");
 
 //Geo
 var geo = {
@@ -37,10 +38,6 @@ geo.Coder.prototype = {
         });
     }
 };
-
-
-
-//
 
 //Proto
 proto = {
@@ -94,13 +91,14 @@ proto.PokemonProtocol.prototype = {
 };
 
 var PokemonRadar = {
-    _Http : require("http"),
-    _Https: require("https"),
+    Http : require("http"),
+    Https: require("https"),
 
     Default : {
-        HEADER: { "User-Agent": "Niantic App" },
+        HEADERS: { "User-Agent": "Niantic App" },
         API_URL : "https://pgorelease.nianticlabs.com/plfe/rpc",
         LOGIN_URL : "https://sso.pokemon.com/sso/login?service=https%3A%2F%2Fsso.pokemon.com%2Fsso%2Foauth2.0%2FcallbackAuthorize",
+        LOGIN_ERROR_URL: "https://www.nianticlabs.com/pokemongo/error",
         LOGIN_OAUTH : "https://sso.pokemon.com/sso/oauth2.0/accessToken",
         PTC_CLIENT_SECRET : "w8ScCUXJQc6kXKw8FiOhd8Fixzht18Dq3PEVkUCP5ZPxtgyWsbTvWHFLm2wNY0JR"
     },
@@ -109,18 +107,106 @@ var PokemonRadar = {
         server:{
             port: 8000,
             bind: "0.0.0.0"
+        },
+        client:{
+            post: {
+                login:{
+                    fst: {
+                        data: {
+                            "lt": "",
+                            "execution": "",
+                            "_eventId": "submit",
+                            "username": "",
+                            "password": ""
+                        },
+                        request: {
+                            host: Url.parse(PokemonRadar.Default.LOGIN_URL).host,
+                            path: Url.parse(PokemonRadar.Default.LOGIN_URL).path,
+                            headers: Default.HEADERS,
+                            method: "POST",
+                            rejectUnauthorized: false
+                        }
+                    },
+                    sec: {
+                        data: {
+                            "client_id": "mobile-app_pokemon-go",
+                            "redirect_uri": PokemonRadar.Default.LOGIN_ERROR_URL,
+                            "client_secret": "",
+                            "grant_type": "refresh_token",
+                            "code": "",
+                        },
+                        request: {
+                            host: Url.parse(PokemonRadar.Default.LOGIN_OAUTH).host,
+                            path: Url.parse(PokemonRadar.Default.LOGIN_OAUTH).path,
+                            headers: Default.HEADERS,
+                            method: "POST",
+                            rejectUnauthorized: false
+                        }
+                    }
+                }
+            },
+
+            get:{
+                login:{
+                    request: {
+                        host: Url.parse(PokemonRadar.Default.LOGIN_URL).host,
+                        path: Url.parse(PokemonRadar.Default.LOGIN_URL).path,
+                        headers: Default.HEADERS,
+                        method: "GET",
+                        rejectUnauthorized: false
+                    }
+                }
+            }
         }
     },
 
-    getApi: function(url, token, req){
+    Login: function(username, password, callback){
+        var first = function(response) {
+            response.setEncoding("utf8");
 
+            var data = [];
+
+            response.on("data", function(chunk) {
+                data.push(chunk);
+            });
+
+            response.on("end", function() {
+                second(JSON.parse(data.join("")));
+            });
+
+            response.on("error", function(err) {
+                console.error("Error during HTTP request");
+                console.error(err.message);
+            });
+        };
+
+        var second = function(data) {
+            var payload = {};
+            Extend(payload, PokemonRadar.DefaultOptions.post.login.first, {
+                username: username,
+                password: password,
+                execution: data.execution,
+                lt: data.lt,
+            });
+
+            var request = DefaultOptions.client.post.login.fst.request;
+            request.json = payload;
+
+            var req = PokemonRadar.Https.request(request, third);
+        };
+
+        var third = function(data) {
+
+        };
+
+        var req = PokemonRadar.Https.request(DefaultOptions.client.get.login.request);
     },
 
     Init : function(options){
         var pokeProtocol = new proto.PokemonProtocol();
         var geoCoder = new geo.Coder({location: options.location});
 
-        PokemonRadar._Http.createServer(function (req, res){
+        PokemonRadar.Http.createServer(function (req, res){
             
         }).listen(options.port || PokemonRadar.DefaultOptions.server.port,options.bind || PokemonRadar.DefaultOptions.server.bind);
         
@@ -129,9 +215,9 @@ var PokemonRadar = {
 
 Program
     .command("start")
-    .option("-l --location", 'Sets the location for the radar. Default: 0')
-    .option("-p --port", 'Sets the port for the server. Default: 8080')
-    .option("-b --bind", 'Sets the binding for the server. Default: 0.0.0.0')
+    .option("-l --location", "Sets the location for the radar. Default: 0")
+    .option("-p --port", "Sets the port for the server. Default: 8080")
+    .option("-b --bind", "Sets the binding for the server. Default: 0.0.0.0")
     .description("Starts the Pokemon radar")
     .action(PokemonRadar.Init);
 
