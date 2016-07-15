@@ -1,0 +1,13 @@
+{
+    "name": "PokeRadar",
+    "description": "Pokemon Radar",
+    "author": ["Relin.Git <relin.git@gmail.comy>"],
+    "version": "0.1.0",
+    "dependencies": {
+        "protocol-buffers" : "*",
+        "node-geocoder" : "*",
+        "commander" : "*",
+        "extend": "*"
+    },
+    "engine": "node >= 0.4.1"
+}
