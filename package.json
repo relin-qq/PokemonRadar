@@ -7,7 +7,9 @@
         "protocol-buffers" : "*",
         "node-geocoder" : "*",
         "commander" : "*",
-        "extend": "*"
+        "extend": "*",
+        "request": "*"
+
     },
     "engine": "node >= 0.4.1"
 }
