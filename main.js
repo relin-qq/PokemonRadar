@@ -3,8 +3,12 @@ var Program = require("commander");
 var Extend = require("extend");
 var Url = require("url");
 var Request = require("request");
+Request = Request.defaults({jar: true})
 // var Bigint = require("bigint");
 var Crypto = require("crypto");
+var Util = require("util");
+var Chalk = require("chalk");
+var QueryString = require("querystring");
 
 var Helpers = {
     getRPCID : function(){
@@ -18,6 +22,28 @@ var Helpers = {
     getClientSecret : function(){
         var secret = Crypto.randomBytes(3*16).toString("base64");
         return secret;
+    },
+    log: function(msg) {
+        var date = new Date();
+        var date = Util.format("[%s:%s:%s.%s]", date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds());
+        console.log.apply(console, [Chalk.green(date)].concat(Array.prototype.slice.call(arguments)));
+    },
+    error: function(msg) {
+        var date = new Date();
+        var date = Util.format("[%s:%s:%s.%s]", date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds());
+        console.log.apply(console, [Chalk.red(date)].concat(Array.prototype.slice.call(arguments)));
+    },
+    getJson : function(data){
+        try{
+            return JSON.parse(data);
+        }catch(e){
+            Helpers.error("Error while JSON parsing");
+        }
+
+        return null
+    },
+    retry: function(func, timeout){
+        setTimeout(func, timeout);
     }
 };
 
@@ -46,7 +72,7 @@ var geo = {
 geo.Coder.prototype = {
     _coder: {},
     getLocation: function(callback){
-        console.log(this._coder)
+        Helpers.log(this._coder)
 
         this._coder.geocode(this.options.location, function(err, res){
             if(err)
@@ -62,12 +88,12 @@ geo.Coder.prototype = {
 var proto = {
     Req : require("protocol-buffers"),
     Default : {
-        HEADERS: { "User-Agent": "Niantic App" },
-        API_URL : "https://pgorelease.nianticlabs.com/plfe/rpc",
-        LOGIN_URL : "https://sso.pokemon.com/sso/login?service=https%3A%2F%2Fsso.pokemon.com%2Fsso%2Foauth2.0%2FcallbackAuthorize",
-        LOGIN_ERROR_URL: "https://www.nianticlabs.com/pokemongo/error",
-        LOGIN_OAUTH : "https://sso.pokemon.com/sso/oauth2.0/accessToken",
-        PTC_CLIENT_SECRET : "w8ScCUXJQc6kXKw8FiOhd8Fixzht18Dq3PEVkUCP5ZPxtgyWsbTvWHFLm2wNY0JR"
+        HEADERS          : { "User-Agent": "Niantic App" },
+        // PTC_CLIENT_SECRET: "w8ScCUXJQc6kXKw8FiOhd8Fixzht18Dq3PEVkUCP5ZPxtgyWsbTvWHFLm2wNY0JR",
+        API_URL          : "https://pgorelease.nianticlabs.com/plfe/rpc",
+        LOGIN_URL        : "https://sso.pokemon.com/sso/login?service=https%3A%2F%2Fsso.pokemon.com%2Fsso%2Foauth2.0%2FcallbackAuthorize",
+        LOGIN_ERROR_URL  : "https://www.nianticlabs.com/pokemongo/error",
+        LOGIN_OAUTH      : "https://sso.pokemon.com/sso/oauth2.0/accessToken"
     },
 };
 
@@ -114,10 +140,11 @@ proto.PokemonProtocol.prototype = {
 
     createLoginFirst :function(){
         var requestData = {
-            uri    : proto.Default.LOGIN_URL,
+            url    : proto.Default.LOGIN_URL,
             headers: proto.Default.HEADERS,
             method : "GET",
-            json   : true
+            followRedirect: false,
+            strictSSL: false
         };
 
         return {
@@ -132,15 +159,16 @@ proto.PokemonProtocol.prototype = {
             password  : password,
             execution : exec,
             lt        : lt,
-            _eventId  : "submit"
+            "_eventId"  : "submit"
         };
         
         var requestData = {
-            uri     : proto.Default.LOGIN_URL,
+            url     : proto.Default.LOGIN_URL,
             headers : proto.Default.HEADERS,
-            json    : payload,
+            form    : payload,
             method  : "POST",
-            encoding: null
+            strictSSL: false,
+            followRedirect: false,
         };
 
         return {
@@ -149,20 +177,21 @@ proto.PokemonProtocol.prototype = {
         };
     },
 
-    createLoginThird :function(username, password, exec, lt){
+    createLoginThird :function(ticket){
         var payload = {
             client_id    : "mobile-app_pokemon-go",
             redirect_uri : proto.Default.LOGIN_ERROR_URL,
             client_secret: Helpers.getClientSecret(),
             grant_type   : "refresh_token",
-            code         : "",
+            code         : ticket,
         };
 
         var requestData = {
-            uri    : proto.Default.LOGIN_OAUTH,
+            url    : proto.Default.LOGIN_OAUTH,
             headers: proto.Default.HEADERS,
-            json   : payload,
+            form   : payload,
             method : "POST",
+            strictSSL: false
         };
 
         return {
@@ -189,31 +218,43 @@ var PokemonRadar = {
 
     Login: function(username, password, callback){
         var first = function() {
+            Helpers.log("Login: (1/3) Sending first request...");
+
             var data = PokemonRadar.Protocol.createLoginFirst();
 
-            var req = Request(data.request, function(error, response, body){
-                console.log(body, response.headers);
+            var req = Request(data.request, function exec(error, response, body){
+                var json = Helpers.getJson(body);
+                
+                if(!json)
+                    return Helpers.retry(first, 1000);
 
-                second(body);
+                second(json);
             });
         };
 
         var second = function(data) {
+            Helpers.log("Login: (2/3) Sending second request...");
+
             var data = PokemonRadar.Protocol.createLoginSecond(username, password, data.execution, data.lt);
 
             var req = Request(data.request, function(error, response, body){
-                console.log(body, response.headers);
+                var json = Helpers.getJson(body);
 
-                third(body);
+                if(json.errors)
+                    return Helpers.error(json.errors[0]);
+                
+                third({ location: response.headers.location });
             });
         };
 
         var third = function(data) {
-            var data = PokemonRadar.Protocol.createLoginThird();
+            Helpers.log("Login: (3/3) Sending third request...");
+
+            var params = QueryString.parse(Url.parse(data.location).query);
+            var data = PokemonRadar.Protocol.createLoginThird(params.ticket);
 
             var req = Request(data.request, function(error, response, body){
-                console.log(body, response.headers);
-                
+                Helpers.log(body)
             });
         };
 
@@ -221,8 +262,8 @@ var PokemonRadar = {
     },
 
     Init : function(options){
-        PokemonRadar.Login("Minixfortheibm", "Minixfortheibm123", function(){
-            console.log("wat");
+        PokemonRadar.Login(options.username, options.username, function(){
+            Helpers.log("wat");
         })
 
         var geoCoder = new geo.Coder({location: options.location});
@@ -236,20 +277,22 @@ var PokemonRadar = {
 
 
 var test = function(){
-    console.log(Helpers.getClientSecret());
+    Helpers.log(Helpers.getClientSecret());
 };
 
 Program
     .command("start")
-    .option("-l --location", "Sets the location for the radar. Default: 0")
-    .option("-p --port", "Sets the port for the server. Default: 8080")
-    .option("-b --bind", "Sets the binding for the server. Default: 0.0.0.0")
+    .option("-l, --location <location>", "Sets the location for the radar. Default: 0")
+    .option("-p, --port <port>", "Sets the port for the server. Default: 8080")
+    .option("-b, --bind <bind>", "Sets the binding for the server. Default: 0.0.0.0")
+    .option("-x, --password <password>", "Sets login password to the PTC login.")
+    .option("-u, --username <username>", "Sets login user name to the PTC login.")
     .description("Starts the Pokemon radar")
     .action(PokemonRadar.Init);
 
 Program
     .command("test")
-    .description("Starts the Pokemon radar")
+    .description("Random Tests")
     .action(test);
 
 Program.parse(process.argv);

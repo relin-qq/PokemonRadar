@@ -8,8 +8,8 @@
         "node-geocoder" : "*",
         "commander" : "*",
         "extend": "*",
-        "request": "*"
-
+        "request": "*",
+        "chalk" : "*"
     },
     "engine": "node >= 0.4.1"
 }
